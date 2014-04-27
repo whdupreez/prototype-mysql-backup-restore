@@ -1,11 +1,17 @@
 package com.willydupreez.prototype.mysql;
 
+import java.io.File;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
@@ -57,6 +63,15 @@ public class DefaultRecoveryManager implements RecoveryManager {
 			}
 			if (isNullOrWhitespace(properties.getBackupPath())) {
 				throw new RecoveryException("No backup path provided");
+			} else {
+				File file = new File(properties.getBackupPath());
+				if (!file.exists()) {
+					throw new RecoveryException("Backup path does not exist: " + properties.getBackupPath());
+				} else if (!file.isDirectory()) {
+					throw new RecoveryException("Backup path is not a directory: " + properties.getBackupPath());
+				} else if (!file.canRead() || !file.canWrite()) {
+					throw new RecoveryException("Backup path read / write permissions not valid: " + properties.getBackupPath());
+				}
 			}
 		}
 
@@ -67,12 +82,9 @@ public class DefaultRecoveryManager implements RecoveryManager {
 
 			recoveryManager.username = properties.getUsername();
 			recoveryManager.password = properties.getPassword();
+			recoveryManager.schema = properties.getSchema();
 
-			recoveryManager.backupPath = properties.getBackupPath();
-			if (!recoveryManager.backupPath.endsWith("/")) {
-				recoveryManager.backupPath = recoveryManager.backupPath + "/";
-			}
-
+			recoveryManager.backupPath = getBackupPath(properties.getBackupPath());
 			recoveryManager.backupCommand = properties.getBackupCommand() == null
 					? MYSQL_BACKUP_COMMAND : properties.getBackupCommand();
 			recoveryManager.restoreCommand = properties.getRestoreCommand() == null
@@ -89,6 +101,11 @@ public class DefaultRecoveryManager implements RecoveryManager {
 			recoveryManager.dropDatabaseSql = String.format(DROP_DATABASE, properties.getSchema());
 
 			return recoveryManager;
+		}
+
+		private String getBackupPath(String path) {
+			String backupPath = new File(path).getAbsolutePath();
+			return backupPath.endsWith("/") ? backupPath : backupPath + "/";
 		}
 
 		private String[] createBackupArguments(RecoveryProperties properties) {
@@ -126,6 +143,7 @@ public class DefaultRecoveryManager implements RecoveryManager {
 
 	private String username;
 	private String password;
+	private String schema;
 
 	private String backupPath;
 	private String backupCommand;
@@ -146,66 +164,6 @@ public class DefaultRecoveryManager implements RecoveryManager {
 	}
 
 	@Override
-	public String backup(String filename) {
-
-		String targetFile = backupPath + filename;
-
-		int exit;
-		try {
-
-			CommandLine command = new CommandLine(backupCommand);
-			Map<String, String> map = new HashMap<>();
-			map.put(Builder.TARGET_KEY, backupPath + filename);
-			command.setSubstitutionMap(map);
-			command.addArguments(backupArguments);
-
-			System.out.println("Executing backup command: " + command.toString());
-
-			exit = executeCommand(command);
-
-		} catch (IOException e) {
-			throw new RecoveryException("Failed to backup to file: " + targetFile, e);
-		}
-
-		if (exit != 0) {
-			throw new RecoveryException("Failed to backup to file with exit code [" + exit + "]: " + targetFile);
-		}
-
-		return targetFile;
-	}
-
-	@Override
-	public void restore(String backupFile) {
-
-		int exit;
-		try {
-
-			CommandLine command = new CommandLine(restoreCommand);
-			Map<String, String> map = new HashMap<>();
-			map.put(Builder.SOURCE_KEY, backupPath + backupFile);
-			command.setSubstitutionMap(map);
-			command.addArguments(restoreArguments);
-
-			System.out.println("Executing restore command: " + command.toString());
-
-			exit = executeCommand(command);
-
-		} catch (IOException e) {
-			throw new RecoveryException("Failed to restore from file: " + backupFile, e);
-		}
-
-		if (exit != 0) {
-			throw new RecoveryException("Failed to backup to file with exit code [" + exit + "]: " + backupFile);
-		}
-
-	}
-
-	private int executeCommand(CommandLine command) throws ExecuteException, IOException {
-		DefaultExecutor executor = new DefaultExecutor();
-		executor.setStreamHandler(new PumpStreamHandler());
-		return executor.execute(command);
-	}
-
 	public void createDatabase() {
 		try (Connection connection = DriverManager.getConnection(rootJdbcUrl, username, password)) {
 			statementExecutor.executeUpdate(connection, createDatabaseSql);
@@ -214,12 +172,94 @@ public class DefaultRecoveryManager implements RecoveryManager {
 		}
 	}
 
+	@Override
 	public void dropDatabase() {
 		try (Connection connection = DriverManager.getConnection(schemaJdbcUrl, username, password)) {
 			statementExecutor.executeUpdate(connection, dropDatabaseSql);
 		} catch (SQLException e) {
 			throw new RecoveryException("Failed to drop database: " + dropDatabaseSql, e);
 		}
+	}
+
+	@Override
+	public List<String> listBackups() {
+		return Arrays.asList(new File(backupPath).listFiles((pathname) -> pathname.isFile()))
+				.stream()
+				.map(file -> file.getName())
+				.collect(Collectors.toList());
+	}
+
+	@Override
+	public String getBackupPath() {
+		return backupPath;
+	}
+
+	@Override
+	public String backup(String tag) {
+
+		String target = generateBackupFilename(tag);
+
+		int exit;
+		try {
+
+			CommandLine command = new CommandLine(backupCommand);
+			Map<String, String> map = new HashMap<>();
+			map.put(Builder.TARGET_KEY, target);
+			command.setSubstitutionMap(map);
+			command.addArguments(backupArguments);
+
+			System.out.println("Executing backup command: " + command.toString());
+
+			exit = executeCommand(command);
+
+		} catch (IOException e) {
+			throw new RecoveryException("Failed to backup to file: " + target, e);
+		}
+
+		if (exit != 0) {
+			throw new RecoveryException("Failed to backup to file with exit code [" + exit + "]: " + target);
+		}
+
+		return target;
+	}
+
+	private String generateBackupFilename(String tag) {
+		// Format: {backupPath}/{schema}_yyyy-MM-dd_HH-mm-ss_{tag}.sql
+		LocalDateTime localDateTime = LocalDateTime.now();
+		return backupPath + schema + "_" + localDateTime.format(
+				DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss")) + "_" + tag + ".sql";
+	}
+
+	@Override
+	public void restore(String source) {
+
+		int exit;
+		try {
+
+			CommandLine command = new CommandLine(restoreCommand);
+			Map<String, String> map = new HashMap<>();
+			map.put(Builder.SOURCE_KEY, backupPath + source);
+			command.setSubstitutionMap(map);
+			command.addArguments(restoreArguments);
+
+			System.out.println("Executing restore command: " + command.toString());
+
+			exit = executeCommand(command);
+
+		} catch (IOException e) {
+			throw new RecoveryException("Failed to restore from file: " + source, e);
+		}
+
+		if (exit != 0) {
+			throw new RecoveryException("Failed to backup to file with exit code [" + exit + "]: " + source);
+		}
+
+	}
+
+	private int executeCommand(CommandLine command) throws ExecuteException, IOException {
+		DefaultExecutor executor = new DefaultExecutor();
+		executor.setStreamHandler(new PumpStreamHandler());
+		return executor.execute(command);
 	}
 
 }

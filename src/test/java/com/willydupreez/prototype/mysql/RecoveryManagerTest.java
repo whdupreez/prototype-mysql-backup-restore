@@ -22,7 +22,7 @@ public class RecoveryManagerTest {
 	public void testBackupRestore() {
 		String filename = "test.sql";
 		recoveryManager.restore(filename);
-		recoveryManager.backup("backup-" + filename);
+		recoveryManager.backup("test");
 	}
 
 	private RecoveryProperties properties() {

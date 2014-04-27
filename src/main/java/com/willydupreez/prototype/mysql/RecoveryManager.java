@@ -1,11 +1,16 @@
 package com.willydupreez.prototype.mysql;
 
+import java.util.List;
+
 public interface RecoveryManager {
 
 	void createDatabase();
 	void dropDatabase();
 
-	String backup(String filename);
-	void restore(String backup);
+	String getBackupPath();
+	String backup(String tag);
+	List<String> listBackups();
+
+	void restore(String filename);
 
 }
