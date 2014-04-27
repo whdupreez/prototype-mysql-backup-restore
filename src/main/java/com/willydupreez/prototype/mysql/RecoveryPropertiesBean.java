@@ -5,6 +5,7 @@ public class RecoveryPropertiesBean implements RecoveryProperties {
 	private String username;
 	private String password;
 	private String hostname;
+	private int port;
 	private String schema;
 
 	private String backupPath;
@@ -34,6 +35,14 @@ public class RecoveryPropertiesBean implements RecoveryProperties {
 
 	public void setHostname(String hostname) {
 		this.hostname = hostname;
+	}
+
+	public int getPort() {
+		return port;
+	}
+
+	public void setPort(int port) {
+		this.port = port;
 	}
 
 	public String getSchema() {

@@ -1,29 +1,38 @@
 package com.willydupreez.prototype.mysql;
 
-import org.apache.commons.lang3.SystemUtils;
+import org.junit.Before;
 import org.junit.Test;
 
 public class RecoveryManagerTest {
 
+	private RecoveryManager recoveryManager;
+
+	@Before
+	public void before() {
+		recoveryManager = DefaultRecoveryManager.create(properties());
+		try {
+			recoveryManager.dropDatabase();
+		} catch (RecoveryException e) {
+			// Ignore if database does not exist.
+		}
+		recoveryManager.createDatabase();
+	}
+
 	@Test
 	public void testBackupRestore() {
 		String filename = "test.sql";
-		new RecoveryManager(properties()).backup(filename);
-		new RecoveryManager(properties()).restore(filename);
+		recoveryManager.restore(filename);
+		recoveryManager.backup("backup-" + filename);
 	}
 
 	private RecoveryProperties properties() {
-
-		boolean isWindows = SystemUtils.IS_OS_WINDOWS;
 
 		RecoveryPropertiesBean props = new RecoveryPropertiesBean();
 		props.setUsername("root");
 		props.setPassword("Admin123");
 		props.setHostname("localhost");
 		props.setSchema("test");
-		props.setBackupPath("target/");
-		props.setBackupCommand(isWindows ? "mysqldump.exe" : "mysqldump");
-		props.setRestoreCommand(isWindows ? "mysql.exe" : "mysql");
+		props.setBackupPath("target/test-classes");
 
 		return props;
 	}

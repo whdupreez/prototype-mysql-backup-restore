@@ -6,6 +6,7 @@ public interface RecoveryProperties {
 	String getPassword();
 	String getSchema();
 	String getHostname();
+	int getPort();
 
 	String getBackupPath();
 	String getBackupCommand();
