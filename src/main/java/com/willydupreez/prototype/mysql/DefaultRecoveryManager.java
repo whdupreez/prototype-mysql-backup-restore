@@ -183,7 +183,7 @@ public class DefaultRecoveryManager implements RecoveryManager {
 
 	@Override
 	public List<String> listBackups() {
-		return Arrays.asList(new File(backupPath).listFiles((pathname) -> pathname.isFile()))
+		return Arrays.asList(new File(backupPath).listFiles((pathname) -> pathname.isFile() && pathname.getName().endsWith(".sql")))
 				.stream()
 				.map(file -> file.getName())
 				.collect(Collectors.toList());
